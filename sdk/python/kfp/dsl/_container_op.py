@@ -881,6 +881,7 @@ class ContainerOp(BaseOp):
                  artifact_location: V1alpha1ArtifactLocation=None,
                  is_exit_handler=False,
                  pvolumes: Dict[str, V1Volume] = None,
+                 outputs: List[_pipeline_param.OutputParam] = None
         ):
         """Create a new instance of ContainerOp.
 
@@ -961,11 +962,17 @@ class ContainerOp(BaseOp):
         self._metadata = None
 
         self.outputs = {}
+        if not outputs:
+            outputs = []
+        for output in outputs:
+            output.op_name = self.name
+            self.outputs[output.name] = output
         if file_outputs:
-            self.outputs = {
-                name: _pipeline_param.PipelineParam(name, op_name=self.name)
+            self.outputs.update({
+                name: _pipeline_param.OutputParam(name, value_from=file_outputs[name], op_name=self.name)
                 for name in file_outputs.keys()
-            }
+            })
+        print(str(self.outputs))
 
         self.output = None
         if len(self.outputs) == 1:

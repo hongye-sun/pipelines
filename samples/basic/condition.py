@@ -72,4 +72,4 @@ def flipcoin_pipeline():
 
 
 if __name__ == '__main__':
-    kfp.compiler.Compiler().compile(flipcoin_pipeline, __file__ + '.zip')
+    kfp.compiler.Compiler().compile(flipcoin_pipeline, __file__ + '.tar.gz')

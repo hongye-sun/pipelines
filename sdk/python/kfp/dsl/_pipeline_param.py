@@ -240,3 +240,8 @@ class PipelineParam(object):
     self.param_type = TypeMeta()
     return self
 
+class OutputParam(PipelineParam):
+  def __init__(self, name, value = None, value_from = None, **kwargs):
+    PipelineParam.__init__(self, name, **kwargs)
+    self.value = value
+    self.value_from = value_from

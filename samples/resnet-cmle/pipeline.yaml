@@ -1,0 +1,922 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  generateName: resnet-train-pipeline-
+spec:
+  arguments:
+    parameters:
+    - name: project-id
+    - name: output
+    - name: region
+      value: us-central1
+    - name: model
+      value: bolts
+    - name: version
+      value: beta1
+    - name: tf-version
+      value: '1.12'
+    - name: train-csv
+      value: gs://bolts_image_dataset/bolt_images_train.csv
+    - name: validation-csv
+      value: gs://bolts_image_dataset/bolt_images_validate.csv
+    - name: labels
+      value: gs://bolts_image_dataset/labels.txt
+    - name: depth
+      value: '50'
+    - name: train-batch-size
+      value: '1024'
+    - name: eval-batch-size
+      value: '1024'
+    - name: steps-per-eval
+      value: '250'
+    - name: train-steps
+      value: '10000'
+    - name: num-train-images
+      value: '218593'
+    - name: num-eval-images
+      value: '54648'
+    - name: num-label-classes
+      value: '10'
+  entrypoint: resnet-train-pipeline
+  serviceAccountName: pipeline-runner
+  templates:
+  - dag:
+      tasks:
+      - arguments:
+          parameters:
+          - name: deploying-a-trained-model-to-cloud-machine-learning-engine-driver-cached
+            value: '{{inputs.parameters.deploying-a-trained-model-to-cloud-machine-learning-engine-driver-cached}}'
+          - name: model
+            value: '{{inputs.parameters.model}}'
+          - name: project-id
+            value: '{{inputs.parameters.project-id}}'
+          - name: submitting-a-cloud-ml-training-job-as-a-pipeline-step-publisher-job-dir
+            value: '{{inputs.parameters.submitting-a-cloud-ml-training-job-as-a-pipeline-step-publisher-job-dir}}'
+          - name: tf-version
+            value: '{{inputs.parameters.tf-version}}'
+          - name: version
+            value: '{{inputs.parameters.version}}'
+        name: deploying-a-trained-model-to-cloud-machine-learning-engine-executor
+        template: deploying-a-trained-model-to-cloud-machine-learning-engine-executor
+    inputs:
+      parameters:
+      - name: deploying-a-trained-model-to-cloud-machine-learning-engine-driver-cached
+      - name: model
+      - name: project-id
+      - name: submitting-a-cloud-ml-training-job-as-a-pipeline-step-publisher-job-dir
+      - name: tf-version
+      - name: version
+    name: deploying-a-trained-model-to-cloud-machine-learning-engine-condition
+    outputs:
+      parameters:
+      - name: deploying-a-trained-model-to-cloud-machine-learning-engine-executor-model-name
+        valueFrom:
+          parameter: '{{tasks.deploying-a-trained-model-to-cloud-machine-learning-engine-executor.outputs.parameters.deploying-a-trained-model-to-cloud-machine-learning-engine-executor-model-name}}'
+      - name: deploying-a-trained-model-to-cloud-machine-learning-engine-executor-model-uri
+        valueFrom:
+          parameter: '{{tasks.deploying-a-trained-model-to-cloud-machine-learning-engine-executor.outputs.parameters.deploying-a-trained-model-to-cloud-machine-learning-engine-executor-model-uri}}'
+      - name: deploying-a-trained-model-to-cloud-machine-learning-engine-executor-version-name
+        valueFrom:
+          parameter: '{{tasks.deploying-a-trained-model-to-cloud-machine-learning-engine-executor.outputs.parameters.deploying-a-trained-model-to-cloud-machine-learning-engine-executor-version-name}}'
+  - container:
+      args:
+      - driver.py
+      - '{"base_dir": "gs://hongyes-ml-tests/metadata"}'
+      - '{"inputs": {"spec": "{\"image\": \"gcr.io/ml-pipeline/ml-pipeline-gcp:c3235d725eb1d1eb06b5600a8291967aa6cf518f\",
+        \"command\": []}", "tf-version": "{{inputs.parameters.tf-version}}", "model":
+        "{{inputs.parameters.model}}", "job-dir": "{{inputs.parameters.submitting-a-cloud-ml-training-job-as-a-pipeline-step-publisher-job-dir}}",
+        "project-id": "{{inputs.parameters.project-id}}", "version": "{{inputs.parameters.version}}"}}'
+      env:
+      - name: GOOGLE_APPLICATION_CREDENTIALS
+        value: /secret/gcp-credentials/key.json
+      - name: CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE
+        value: /secret/gcp-credentials/key.json
+      image: gcr.io/hongyes-ml/metadata-tool:latest
+      volumeMounts:
+      - mountPath: /secret/gcp-credentials
+        name: gcp-credentials
+    inputs:
+      parameters:
+      - name: model
+      - name: project-id
+      - name: submitting-a-cloud-ml-training-job-as-a-pipeline-step-publisher-job-dir
+      - name: tf-version
+      - name: version
+    name: deploying-a-trained-model-to-cloud-machine-learning-engine-driver
+    outputs:
+      artifacts:
+      - name: mlpipeline-ui-metadata
+        optional: true
+        path: /mlpipeline-ui-metadata.json
+      - name: mlpipeline-metrics
+        optional: true
+        path: /mlpipeline-metrics.json
+      parameters:
+      - name: deploying-a-trained-model-to-cloud-machine-learning-engine-driver-cached
+        valueFrom:
+          path: /tmp/cached
+      - name: deploying-a-trained-model-to-cloud-machine-learning-engine-driver-execution
+        valueFrom:
+          path: /tmp/execution.json
+  - container:
+      args:
+      - kfp_component.google.ml_engine
+      - deploy
+      - --model_uri
+      - '{{inputs.parameters.submitting-a-cloud-ml-training-job-as-a-pipeline-step-publisher-job-dir}}/export'
+      - --project_id
+      - '{{inputs.parameters.project-id}}'
+      - --model_id
+      - '{{inputs.parameters.model}}'
+      - --version_id
+      - '{{inputs.parameters.version}}'
+      - --runtime_version
+      - '{{inputs.parameters.tf-version}}'
+      - --version
+      - ''
+      - --replace_existing_version
+      - 'True'
+      - --set_default
+      - 'False'
+      - --wait_interval
+      - '30'
+      command: []
+      env:
+      - name: KFP_POD_NAME
+        value: '{{pod.name}}'
+      - name: GOOGLE_APPLICATION_CREDENTIALS
+        value: /secret/gcp-credentials/user-gcp-sa.json
+      - name: CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE
+        value: /secret/gcp-credentials/user-gcp-sa.json
+      image: gcr.io/ml-pipeline/ml-pipeline-gcp:c3235d725eb1d1eb06b5600a8291967aa6cf518f
+      volumeMounts:
+      - mountPath: /secret/gcp-credentials
+        name: gcp-credentials
+    inputs:
+      parameters:
+      - name: model
+      - name: project-id
+      - name: submitting-a-cloud-ml-training-job-as-a-pipeline-step-publisher-job-dir
+      - name: tf-version
+      - name: version
+    name: deploying-a-trained-model-to-cloud-machine-learning-engine-executor
+    outputs:
+      artifacts:
+      - name: mlpipeline-ui-metadata
+        optional: true
+        path: /mlpipeline-ui-metadata.json
+      - name: mlpipeline-metrics
+        optional: true
+        path: /mlpipeline-metrics.json
+      parameters:
+      - name: deploying-a-trained-model-to-cloud-machine-learning-engine-executor-model-name
+        valueFrom:
+          path: /tmp/kfp/output/ml_engine/model_name.txt
+      - name: deploying-a-trained-model-to-cloud-machine-learning-engine-executor-model-uri
+        valueFrom:
+          path: /tmp/kfp/output/ml_engine/model_uri.txt
+      - name: deploying-a-trained-model-to-cloud-machine-learning-engine-executor-version-name
+        valueFrom:
+          path: /tmp/kfp/output/ml_engine/version_name.txt
+  - dag:
+      tasks:
+      - arguments:
+          parameters:
+          - name: deploying-a-trained-model-to-cloud-machine-learning-engine-driver-cached
+            value: '{{tasks.deploying-a-trained-model-to-cloud-machine-learning-engine-driver.outputs.parameters.deploying-a-trained-model-to-cloud-machine-learning-engine-driver-cached}}'
+          - name: model
+            value: '{{inputs.parameters.model}}'
+          - name: project-id
+            value: '{{inputs.parameters.project-id}}'
+          - name: submitting-a-cloud-ml-training-job-as-a-pipeline-step-publisher-job-dir
+            value: '{{inputs.parameters.submitting-a-cloud-ml-training-job-as-a-pipeline-step-publisher-job-dir}}'
+          - name: tf-version
+            value: '{{inputs.parameters.tf-version}}'
+          - name: version
+            value: '{{inputs.parameters.version}}'
+        dependencies:
+        - deploying-a-trained-model-to-cloud-machine-learning-engine-driver
+        name: deploying-a-trained-model-to-cloud-machine-learning-engine-condition
+        template: deploying-a-trained-model-to-cloud-machine-learning-engine-condition
+        when: '{{tasks.deploying-a-trained-model-to-cloud-machine-learning-engine-driver.outputs.parameters.deploying-a-trained-model-to-cloud-machine-learning-engine-driver-cached}}
+          == False'
+      - arguments:
+          parameters:
+          - name: model
+            value: '{{inputs.parameters.model}}'
+          - name: project-id
+            value: '{{inputs.parameters.project-id}}'
+          - name: submitting-a-cloud-ml-training-job-as-a-pipeline-step-publisher-job-dir
+            value: '{{inputs.parameters.submitting-a-cloud-ml-training-job-as-a-pipeline-step-publisher-job-dir}}'
+          - name: tf-version
+            value: '{{inputs.parameters.tf-version}}'
+          - name: version
+            value: '{{inputs.parameters.version}}'
+        name: deploying-a-trained-model-to-cloud-machine-learning-engine-driver
+        template: deploying-a-trained-model-to-cloud-machine-learning-engine-driver
+      - arguments:
+          parameters:
+          - name: deploying-a-trained-model-to-cloud-machine-learning-engine-driver-cached
+            value: '{{tasks.deploying-a-trained-model-to-cloud-machine-learning-engine-driver.outputs.parameters.deploying-a-trained-model-to-cloud-machine-learning-engine-driver-cached}}'
+          - name: deploying-a-trained-model-to-cloud-machine-learning-engine-driver-execution
+            value: '{{tasks.deploying-a-trained-model-to-cloud-machine-learning-engine-driver.outputs.parameters.deploying-a-trained-model-to-cloud-machine-learning-engine-driver-execution}}'
+          - name: deploying-a-trained-model-to-cloud-machine-learning-engine-executor-model-name
+            value: '{{tasks.deploying-a-trained-model-to-cloud-machine-learning-engine-condition.outputs.parameters.deploying-a-trained-model-to-cloud-machine-learning-engine-executor-model-name}}'
+          - name: deploying-a-trained-model-to-cloud-machine-learning-engine-executor-model-uri
+            value: '{{tasks.deploying-a-trained-model-to-cloud-machine-learning-engine-condition.outputs.parameters.deploying-a-trained-model-to-cloud-machine-learning-engine-executor-model-uri}}'
+          - name: deploying-a-trained-model-to-cloud-machine-learning-engine-executor-version-name
+            value: '{{tasks.deploying-a-trained-model-to-cloud-machine-learning-engine-condition.outputs.parameters.deploying-a-trained-model-to-cloud-machine-learning-engine-executor-version-name}}'
+        dependencies:
+        - deploying-a-trained-model-to-cloud-machine-learning-engine-condition
+        - deploying-a-trained-model-to-cloud-machine-learning-engine-driver
+        name: deploying-a-trained-model-to-cloud-machine-learning-engine-publisher
+        template: deploying-a-trained-model-to-cloud-machine-learning-engine-publisher
+    inputs:
+      parameters:
+      - name: model
+      - name: project-id
+      - name: submitting-a-cloud-ml-training-job-as-a-pipeline-step-publisher-job-dir
+      - name: tf-version
+      - name: version
+    name: deploying-a-trained-model-to-cloud-machine-learning-engine-group
+  - container:
+      args:
+      - publisher.py
+      - '{"base_dir": "gs://hongyes-ml-tests/metadata"}'
+      - '{{inputs.parameters.deploying-a-trained-model-to-cloud-machine-learning-engine-driver-cached}}'
+      - '{{inputs.parameters.deploying-a-trained-model-to-cloud-machine-learning-engine-driver-execution}}'
+      - '{"model-uri": "{{inputs.parameters.deploying-a-trained-model-to-cloud-machine-learning-engine-executor-model-uri}}",
+        "model-name": "{{inputs.parameters.deploying-a-trained-model-to-cloud-machine-learning-engine-executor-model-name}}",
+        "version-name": "{{inputs.parameters.deploying-a-trained-model-to-cloud-machine-learning-engine-executor-version-name}}"}'
+      env:
+      - name: GOOGLE_APPLICATION_CREDENTIALS
+        value: /secret/gcp-credentials/key.json
+      - name: CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE
+        value: /secret/gcp-credentials/key.json
+      image: gcr.io/hongyes-ml/metadata-tool:latest
+      volumeMounts:
+      - mountPath: /secret/gcp-credentials
+        name: gcp-credentials
+    inputs:
+      parameters:
+      - name: deploying-a-trained-model-to-cloud-machine-learning-engine-driver-cached
+      - name: deploying-a-trained-model-to-cloud-machine-learning-engine-driver-execution
+      - name: deploying-a-trained-model-to-cloud-machine-learning-engine-executor-model-name
+      - name: deploying-a-trained-model-to-cloud-machine-learning-engine-executor-model-uri
+      - name: deploying-a-trained-model-to-cloud-machine-learning-engine-executor-version-name
+    name: deploying-a-trained-model-to-cloud-machine-learning-engine-publisher
+    outputs:
+      artifacts:
+      - name: mlpipeline-ui-metadata
+        optional: true
+        path: /mlpipeline-ui-metadata.json
+      - name: mlpipeline-metrics
+        optional: true
+        path: /mlpipeline-metrics.json
+      parameters:
+      - name: deploying-a-trained-model-to-cloud-machine-learning-engine-publisher-model_name
+        valueFrom:
+          path: /tmp/model-name
+      - name: deploying-a-trained-model-to-cloud-machine-learning-engine-publisher-model_uri
+        valueFrom:
+          path: /tmp/model-uri
+      - name: deploying-a-trained-model-to-cloud-machine-learning-engine-publisher-version_name
+        valueFrom:
+          path: /tmp/version-name
+  - dag:
+      tasks:
+      - arguments:
+          parameters:
+          - name: eval-batch-size
+            value: '{{inputs.parameters.eval-batch-size}}'
+          - name: labels
+            value: '{{inputs.parameters.labels}}'
+          - name: launch-python-driver-cached
+            value: '{{inputs.parameters.launch-python-driver-cached}}'
+          - name: output
+            value: '{{inputs.parameters.output}}'
+          - name: project-id
+            value: '{{inputs.parameters.project-id}}'
+          - name: train-batch-size
+            value: '{{inputs.parameters.train-batch-size}}'
+          - name: train-csv
+            value: '{{inputs.parameters.train-csv}}'
+          - name: validation-csv
+            value: '{{inputs.parameters.validation-csv}}'
+        name: launch-python-executor
+        template: launch-python-executor
+    inputs:
+      parameters:
+      - name: eval-batch-size
+      - name: labels
+      - name: launch-python-driver-cached
+      - name: output
+      - name: project-id
+      - name: train-batch-size
+      - name: train-csv
+      - name: validation-csv
+    name: launch-python-condition
+    outputs:
+      parameters:
+      - name: launch-python-executor-job-id
+        valueFrom:
+          parameter: '{{tasks.launch-python-executor.outputs.parameters.launch-python-executor-job-id}}'
+  - container:
+      args:
+      - driver.py
+      - '{"base_dir": "gs://hongyes-ml-tests/metadata"}'
+      - '{"inputs": {"spec": "{\"image\": \"gcr.io/ml-pipeline/ml-pipeline-gcp:c3235d725eb1d1eb06b5600a8291967aa6cf518f\",
+        \"command\": []}", "project-id": "{{inputs.parameters.project-id}}", "output":
+        "{{inputs.parameters.output}}", "eval-batch-size": "{{inputs.parameters.eval-batch-size}}",
+        "train-batch-size": "{{inputs.parameters.train-batch-size}}", "train-csv":
+        "{{inputs.parameters.train-csv}}", "labels": "{{inputs.parameters.labels}}",
+        "validation-csv": "{{inputs.parameters.validation-csv}}"}}'
+      env:
+      - name: GOOGLE_APPLICATION_CREDENTIALS
+        value: /secret/gcp-credentials/key.json
+      - name: CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE
+        value: /secret/gcp-credentials/key.json
+      image: gcr.io/hongyes-ml/metadata-tool:latest
+      volumeMounts:
+      - mountPath: /secret/gcp-credentials
+        name: gcp-credentials
+    inputs:
+      parameters:
+      - name: eval-batch-size
+      - name: labels
+      - name: output
+      - name: project-id
+      - name: train-batch-size
+      - name: train-csv
+      - name: validation-csv
+    name: launch-python-driver
+    outputs:
+      artifacts:
+      - name: mlpipeline-ui-metadata
+        optional: true
+        path: /mlpipeline-ui-metadata.json
+      - name: mlpipeline-metrics
+        optional: true
+        path: /mlpipeline-metrics.json
+      parameters:
+      - name: launch-python-driver-cached
+        valueFrom:
+          path: /tmp/cached
+      - name: launch-python-driver-execution
+        valueFrom:
+          path: /tmp/execution.json
+  - container:
+      args:
+      - kfp_component.google.dataflow
+      - launch_python
+      - --python_file_path
+      - gs://ml-pipeline-playground/samples/ml_engine/resnet-cmle/preprocess/preprocess.py
+      - --project_id
+      - '{{inputs.parameters.project-id}}'
+      - --staging_dir
+      - '{{inputs.parameters.output}}/{{workflow.name}}/staging'
+      - --requirements_file_path
+      - gs://ml-pipeline-playground/samples/ml_engine/resnet-cmle/preprocess/requirements.txt
+      - --args
+      - '["--train_csv", "{{inputs.parameters.train-csv}}", "--validation_csv", "{{inputs.parameters.validation-csv}}",
+        "--labels", "{{inputs.parameters.labels}}", "--output_dir", "{{inputs.parameters.output}}/{{workflow.name}}/preprocessed_output",
+        "--train_size", "{{inputs.parameters.train-batch-size}}", "--validation_size",
+        "{{inputs.parameters.eval-batch-size}}"]'
+      - --wait_interval
+      - '30'
+      command: []
+      env:
+      - name: KFP_POD_NAME
+        value: '{{pod.name}}'
+      - name: GOOGLE_APPLICATION_CREDENTIALS
+        value: /secret/gcp-credentials/user-gcp-sa.json
+      - name: CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE
+        value: /secret/gcp-credentials/user-gcp-sa.json
+      image: gcr.io/ml-pipeline/ml-pipeline-gcp:c3235d725eb1d1eb06b5600a8291967aa6cf518f
+      volumeMounts:
+      - mountPath: /secret/gcp-credentials
+        name: gcp-credentials
+    inputs:
+      parameters:
+      - name: eval-batch-size
+      - name: labels
+      - name: output
+      - name: project-id
+      - name: train-batch-size
+      - name: train-csv
+      - name: validation-csv
+    name: launch-python-executor
+    outputs:
+      artifacts:
+      - name: mlpipeline-ui-metadata
+        optional: true
+        path: /mlpipeline-ui-metadata.json
+      - name: mlpipeline-metrics
+        optional: true
+        path: /mlpipeline-metrics.json
+      parameters:
+      - name: launch-python-executor-job-id
+        valueFrom:
+          path: /tmp/kfp/output/dataflow/job_id.txt
+  - dag:
+      tasks:
+      - arguments:
+          parameters:
+          - name: eval-batch-size
+            value: '{{inputs.parameters.eval-batch-size}}'
+          - name: labels
+            value: '{{inputs.parameters.labels}}'
+          - name: launch-python-driver-cached
+            value: '{{tasks.launch-python-driver.outputs.parameters.launch-python-driver-cached}}'
+          - name: output
+            value: '{{inputs.parameters.output}}'
+          - name: project-id
+            value: '{{inputs.parameters.project-id}}'
+          - name: train-batch-size
+            value: '{{inputs.parameters.train-batch-size}}'
+          - name: train-csv
+            value: '{{inputs.parameters.train-csv}}'
+          - name: validation-csv
+            value: '{{inputs.parameters.validation-csv}}'
+        dependencies:
+        - launch-python-driver
+        name: launch-python-condition
+        template: launch-python-condition
+        when: '{{tasks.launch-python-driver.outputs.parameters.launch-python-driver-cached}}
+          == False'
+      - arguments:
+          parameters:
+          - name: eval-batch-size
+            value: '{{inputs.parameters.eval-batch-size}}'
+          - name: labels
+            value: '{{inputs.parameters.labels}}'
+          - name: output
+            value: '{{inputs.parameters.output}}'
+          - name: project-id
+            value: '{{inputs.parameters.project-id}}'
+          - name: train-batch-size
+            value: '{{inputs.parameters.train-batch-size}}'
+          - name: train-csv
+            value: '{{inputs.parameters.train-csv}}'
+          - name: validation-csv
+            value: '{{inputs.parameters.validation-csv}}'
+        name: launch-python-driver
+        template: launch-python-driver
+      - arguments:
+          parameters:
+          - name: launch-python-driver-cached
+            value: '{{tasks.launch-python-driver.outputs.parameters.launch-python-driver-cached}}'
+          - name: launch-python-driver-execution
+            value: '{{tasks.launch-python-driver.outputs.parameters.launch-python-driver-execution}}'
+          - name: launch-python-executor-job-id
+            value: '{{tasks.launch-python-condition.outputs.parameters.launch-python-executor-job-id}}'
+        dependencies:
+        - launch-python-condition
+        - launch-python-driver
+        name: launch-python-publisher
+        template: launch-python-publisher
+    inputs:
+      parameters:
+      - name: eval-batch-size
+      - name: labels
+      - name: output
+      - name: project-id
+      - name: train-batch-size
+      - name: train-csv
+      - name: validation-csv
+    name: launch-python-group
+  - container:
+      args:
+      - publisher.py
+      - '{"base_dir": "gs://hongyes-ml-tests/metadata"}'
+      - '{{inputs.parameters.launch-python-driver-cached}}'
+      - '{{inputs.parameters.launch-python-driver-execution}}'
+      - '{"job-id": "{{inputs.parameters.launch-python-executor-job-id}}"}'
+      env:
+      - name: GOOGLE_APPLICATION_CREDENTIALS
+        value: /secret/gcp-credentials/key.json
+      - name: CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE
+        value: /secret/gcp-credentials/key.json
+      image: gcr.io/hongyes-ml/metadata-tool:latest
+      volumeMounts:
+      - mountPath: /secret/gcp-credentials
+        name: gcp-credentials
+    inputs:
+      parameters:
+      - name: launch-python-driver-cached
+      - name: launch-python-driver-execution
+      - name: launch-python-executor-job-id
+    name: launch-python-publisher
+    outputs:
+      artifacts:
+      - name: mlpipeline-ui-metadata
+        optional: true
+        path: /mlpipeline-ui-metadata.json
+      - name: mlpipeline-metrics
+        optional: true
+        path: /mlpipeline-metrics.json
+      parameters:
+      - name: launch-python-publisher-job_id
+        valueFrom:
+          path: /tmp/job-id
+  - dag:
+      tasks:
+      - arguments:
+          parameters:
+          - name: model
+            value: '{{inputs.parameters.model}}'
+          - name: project-id
+            value: '{{inputs.parameters.project-id}}'
+          - name: submitting-a-cloud-ml-training-job-as-a-pipeline-step-publisher-job-dir
+            value: '{{tasks.submitting-a-cloud-ml-training-job-as-a-pipeline-step-group.outputs.parameters.submitting-a-cloud-ml-training-job-as-a-pipeline-step-publisher-job-dir}}'
+          - name: tf-version
+            value: '{{inputs.parameters.tf-version}}'
+          - name: version
+            value: '{{inputs.parameters.version}}'
+        dependencies:
+        - submitting-a-cloud-ml-training-job-as-a-pipeline-step-group
+        name: deploying-a-trained-model-to-cloud-machine-learning-engine-group
+        template: deploying-a-trained-model-to-cloud-machine-learning-engine-group
+      - arguments:
+          parameters:
+          - name: eval-batch-size
+            value: '{{inputs.parameters.eval-batch-size}}'
+          - name: labels
+            value: '{{inputs.parameters.labels}}'
+          - name: output
+            value: '{{inputs.parameters.output}}'
+          - name: project-id
+            value: '{{inputs.parameters.project-id}}'
+          - name: train-batch-size
+            value: '{{inputs.parameters.train-batch-size}}'
+          - name: train-csv
+            value: '{{inputs.parameters.train-csv}}'
+          - name: validation-csv
+            value: '{{inputs.parameters.validation-csv}}'
+        name: launch-python-group
+        template: launch-python-group
+      - arguments:
+          parameters:
+          - name: depth
+            value: '{{inputs.parameters.depth}}'
+          - name: eval-batch-size
+            value: '{{inputs.parameters.eval-batch-size}}'
+          - name: num-eval-images
+            value: '{{inputs.parameters.num-eval-images}}'
+          - name: num-label-classes
+            value: '{{inputs.parameters.num-label-classes}}'
+          - name: num-train-images
+            value: '{{inputs.parameters.num-train-images}}'
+          - name: output
+            value: '{{inputs.parameters.output}}'
+          - name: project-id
+            value: '{{inputs.parameters.project-id}}'
+          - name: steps-per-eval
+            value: '{{inputs.parameters.steps-per-eval}}'
+          - name: tf-version
+            value: '{{inputs.parameters.tf-version}}'
+          - name: train-batch-size
+            value: '{{inputs.parameters.train-batch-size}}'
+          - name: train-steps
+            value: '{{inputs.parameters.train-steps}}'
+        dependencies:
+        - launch-python-group
+        name: submitting-a-cloud-ml-training-job-as-a-pipeline-step-group
+        template: submitting-a-cloud-ml-training-job-as-a-pipeline-step-group
+    inputs:
+      parameters:
+      - name: depth
+      - name: eval-batch-size
+      - name: labels
+      - name: model
+      - name: num-eval-images
+      - name: num-label-classes
+      - name: num-train-images
+      - name: output
+      - name: project-id
+      - name: steps-per-eval
+      - name: tf-version
+      - name: train-batch-size
+      - name: train-csv
+      - name: train-steps
+      - name: validation-csv
+      - name: version
+    name: resnet-train-pipeline
+  - dag:
+      tasks:
+      - arguments:
+          parameters:
+          - name: depth
+            value: '{{inputs.parameters.depth}}'
+          - name: eval-batch-size
+            value: '{{inputs.parameters.eval-batch-size}}'
+          - name: num-eval-images
+            value: '{{inputs.parameters.num-eval-images}}'
+          - name: num-label-classes
+            value: '{{inputs.parameters.num-label-classes}}'
+          - name: num-train-images
+            value: '{{inputs.parameters.num-train-images}}'
+          - name: output
+            value: '{{inputs.parameters.output}}'
+          - name: project-id
+            value: '{{inputs.parameters.project-id}}'
+          - name: steps-per-eval
+            value: '{{inputs.parameters.steps-per-eval}}'
+          - name: submitting-a-cloud-ml-training-job-as-a-pipeline-step-driver-cached
+            value: '{{inputs.parameters.submitting-a-cloud-ml-training-job-as-a-pipeline-step-driver-cached}}'
+          - name: tf-version
+            value: '{{inputs.parameters.tf-version}}'
+          - name: train-batch-size
+            value: '{{inputs.parameters.train-batch-size}}'
+          - name: train-steps
+            value: '{{inputs.parameters.train-steps}}'
+        name: submitting-a-cloud-ml-training-job-as-a-pipeline-step-executor
+        template: submitting-a-cloud-ml-training-job-as-a-pipeline-step-executor
+    inputs:
+      parameters:
+      - name: depth
+      - name: eval-batch-size
+      - name: num-eval-images
+      - name: num-label-classes
+      - name: num-train-images
+      - name: output
+      - name: project-id
+      - name: steps-per-eval
+      - name: submitting-a-cloud-ml-training-job-as-a-pipeline-step-driver-cached
+      - name: tf-version
+      - name: train-batch-size
+      - name: train-steps
+    name: submitting-a-cloud-ml-training-job-as-a-pipeline-step-condition
+    outputs:
+      parameters:
+      - name: submitting-a-cloud-ml-training-job-as-a-pipeline-step-executor-job-dir
+        valueFrom:
+          parameter: '{{tasks.submitting-a-cloud-ml-training-job-as-a-pipeline-step-executor.outputs.parameters.submitting-a-cloud-ml-training-job-as-a-pipeline-step-executor-job-dir}}'
+      - name: submitting-a-cloud-ml-training-job-as-a-pipeline-step-executor-job-id
+        valueFrom:
+          parameter: '{{tasks.submitting-a-cloud-ml-training-job-as-a-pipeline-step-executor.outputs.parameters.submitting-a-cloud-ml-training-job-as-a-pipeline-step-executor-job-id}}'
+  - container:
+      args:
+      - driver.py
+      - '{"base_dir": "gs://hongyes-ml-tests/metadata"}'
+      - '{"inputs": {"spec": "{\"image\": \"gcr.io/ml-pipeline/ml-pipeline-gcp:c3235d725eb1d1eb06b5600a8291967aa6cf518f\",
+        \"command\": []}", "tf-version": "{{inputs.parameters.tf-version}}", "steps-per-eval":
+        "{{inputs.parameters.steps-per-eval}}", "project-id": "{{inputs.parameters.project-id}}",
+        "output": "{{inputs.parameters.output}}", "num-train-images": "{{inputs.parameters.num-train-images}}",
+        "eval-batch-size": "{{inputs.parameters.eval-batch-size}}", "train-steps":
+        "{{inputs.parameters.train-steps}}", "train-batch-size": "{{inputs.parameters.train-batch-size}}",
+        "num-label-classes": "{{inputs.parameters.num-label-classes}}", "num-eval-images":
+        "{{inputs.parameters.num-eval-images}}", "depth": "{{inputs.parameters.depth}}"}}'
+      env:
+      - name: GOOGLE_APPLICATION_CREDENTIALS
+        value: /secret/gcp-credentials/key.json
+      - name: CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE
+        value: /secret/gcp-credentials/key.json
+      image: gcr.io/hongyes-ml/metadata-tool:latest
+      volumeMounts:
+      - mountPath: /secret/gcp-credentials
+        name: gcp-credentials
+    inputs:
+      parameters:
+      - name: depth
+      - name: eval-batch-size
+      - name: num-eval-images
+      - name: num-label-classes
+      - name: num-train-images
+      - name: output
+      - name: project-id
+      - name: steps-per-eval
+      - name: tf-version
+      - name: train-batch-size
+      - name: train-steps
+    name: submitting-a-cloud-ml-training-job-as-a-pipeline-step-driver
+    outputs:
+      artifacts:
+      - name: mlpipeline-ui-metadata
+        optional: true
+        path: /mlpipeline-ui-metadata.json
+      - name: mlpipeline-metrics
+        optional: true
+        path: /mlpipeline-metrics.json
+      parameters:
+      - name: submitting-a-cloud-ml-training-job-as-a-pipeline-step-driver-cached
+        valueFrom:
+          path: /tmp/cached
+      - name: submitting-a-cloud-ml-training-job-as-a-pipeline-step-driver-execution
+        valueFrom:
+          path: /tmp/execution.json
+  - container:
+      args:
+      - kfp_component.google.ml_engine
+      - train
+      - --project_id
+      - '{{inputs.parameters.project-id}}'
+      - --python_module
+      - trainer.resnet_main
+      - --package_uris
+      - '["gs://ml-pipeline-playground/samples/ml_engine/resnet-cmle/trainer/trainer-1.0.tar.gz"]'
+      - --region
+      - us-central1
+      - --args
+      - '["--data_dir", "{{inputs.parameters.output}}/{{workflow.name}}/preprocessed_output",
+        "--model_dir", "{{inputs.parameters.output}}/{{workflow.name}}/model", "--use_tpu",
+        "True", "--resnet_depth", "{{inputs.parameters.depth}}", "--train_batch_size",
+        "{{inputs.parameters.train-batch-size}}", "--eval_batch_size", "{{inputs.parameters.eval-batch-size}}",
+        "--steps_per_eval", "{{inputs.parameters.steps-per-eval}}", "--train_steps",
+        "{{inputs.parameters.train-steps}}", "--num_train_images", "{{inputs.parameters.num-train-images}}",
+        "--num_eval_images", "{{inputs.parameters.num-eval-images}}", "--num_label_classes",
+        "{{inputs.parameters.num-label-classes}}", "--export_dir", "{{inputs.parameters.output}}/{{workflow.name}}/model/export"]'
+      - --job_dir
+      - '{{inputs.parameters.output}}/{{workflow.name}}/model'
+      - --python_version
+      - ''
+      - --runtime_version
+      - '{{inputs.parameters.tf-version}}'
+      - --master_image_uri
+      - ''
+      - --worker_image_uri
+      - ''
+      - --training_input
+      - '{"scaleTier": "BASIC_TPU"}'
+      - --job_id_prefix
+      - ''
+      - --wait_interval
+      - '30'
+      command: []
+      env:
+      - name: KFP_POD_NAME
+        value: '{{pod.name}}'
+      - name: GOOGLE_APPLICATION_CREDENTIALS
+        value: /secret/gcp-credentials/user-gcp-sa.json
+      - name: CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE
+        value: /secret/gcp-credentials/user-gcp-sa.json
+      image: gcr.io/ml-pipeline/ml-pipeline-gcp:c3235d725eb1d1eb06b5600a8291967aa6cf518f
+      volumeMounts:
+      - mountPath: /secret/gcp-credentials
+        name: gcp-credentials
+    inputs:
+      parameters:
+      - name: depth
+      - name: eval-batch-size
+      - name: num-eval-images
+      - name: num-label-classes
+      - name: num-train-images
+      - name: output
+      - name: project-id
+      - name: steps-per-eval
+      - name: tf-version
+      - name: train-batch-size
+      - name: train-steps
+    name: submitting-a-cloud-ml-training-job-as-a-pipeline-step-executor
+    outputs:
+      artifacts:
+      - name: mlpipeline-ui-metadata
+        optional: true
+        path: /mlpipeline-ui-metadata.json
+      - name: mlpipeline-metrics
+        optional: true
+        path: /mlpipeline-metrics.json
+      parameters:
+      - name: submitting-a-cloud-ml-training-job-as-a-pipeline-step-executor-job-dir
+        valueFrom:
+          path: /tmp/kfp/output/ml_engine/job_dir.txt
+      - name: submitting-a-cloud-ml-training-job-as-a-pipeline-step-executor-job-id
+        valueFrom:
+          path: /tmp/kfp/output/ml_engine/job_id.txt
+  - dag:
+      tasks:
+      - arguments:
+          parameters:
+          - name: depth
+            value: '{{inputs.parameters.depth}}'
+          - name: eval-batch-size
+            value: '{{inputs.parameters.eval-batch-size}}'
+          - name: num-eval-images
+            value: '{{inputs.parameters.num-eval-images}}'
+          - name: num-label-classes
+            value: '{{inputs.parameters.num-label-classes}}'
+          - name: num-train-images
+            value: '{{inputs.parameters.num-train-images}}'
+          - name: output
+            value: '{{inputs.parameters.output}}'
+          - name: project-id
+            value: '{{inputs.parameters.project-id}}'
+          - name: steps-per-eval
+            value: '{{inputs.parameters.steps-per-eval}}'
+          - name: submitting-a-cloud-ml-training-job-as-a-pipeline-step-driver-cached
+            value: '{{tasks.submitting-a-cloud-ml-training-job-as-a-pipeline-step-driver.outputs.parameters.submitting-a-cloud-ml-training-job-as-a-pipeline-step-driver-cached}}'
+          - name: tf-version
+            value: '{{inputs.parameters.tf-version}}'
+          - name: train-batch-size
+            value: '{{inputs.parameters.train-batch-size}}'
+          - name: train-steps
+            value: '{{inputs.parameters.train-steps}}'
+        dependencies:
+        - submitting-a-cloud-ml-training-job-as-a-pipeline-step-driver
+        name: submitting-a-cloud-ml-training-job-as-a-pipeline-step-condition
+        template: submitting-a-cloud-ml-training-job-as-a-pipeline-step-condition
+        when: '{{tasks.submitting-a-cloud-ml-training-job-as-a-pipeline-step-driver.outputs.parameters.submitting-a-cloud-ml-training-job-as-a-pipeline-step-driver-cached}}
+          == False'
+      - arguments:
+          parameters:
+          - name: depth
+            value: '{{inputs.parameters.depth}}'
+          - name: eval-batch-size
+            value: '{{inputs.parameters.eval-batch-size}}'
+          - name: num-eval-images
+            value: '{{inputs.parameters.num-eval-images}}'
+          - name: num-label-classes
+            value: '{{inputs.parameters.num-label-classes}}'
+          - name: num-train-images
+            value: '{{inputs.parameters.num-train-images}}'
+          - name: output
+            value: '{{inputs.parameters.output}}'
+          - name: project-id
+            value: '{{inputs.parameters.project-id}}'
+          - name: steps-per-eval
+            value: '{{inputs.parameters.steps-per-eval}}'
+          - name: tf-version
+            value: '{{inputs.parameters.tf-version}}'
+          - name: train-batch-size
+            value: '{{inputs.parameters.train-batch-size}}'
+          - name: train-steps
+            value: '{{inputs.parameters.train-steps}}'
+        name: submitting-a-cloud-ml-training-job-as-a-pipeline-step-driver
+        template: submitting-a-cloud-ml-training-job-as-a-pipeline-step-driver
+      - arguments:
+          parameters:
+          - name: submitting-a-cloud-ml-training-job-as-a-pipeline-step-driver-cached
+            value: '{{tasks.submitting-a-cloud-ml-training-job-as-a-pipeline-step-driver.outputs.parameters.submitting-a-cloud-ml-training-job-as-a-pipeline-step-driver-cached}}'
+          - name: submitting-a-cloud-ml-training-job-as-a-pipeline-step-driver-execution
+            value: '{{tasks.submitting-a-cloud-ml-training-job-as-a-pipeline-step-driver.outputs.parameters.submitting-a-cloud-ml-training-job-as-a-pipeline-step-driver-execution}}'
+          - name: submitting-a-cloud-ml-training-job-as-a-pipeline-step-executor-job-dir
+            value: '{{tasks.submitting-a-cloud-ml-training-job-as-a-pipeline-step-condition.outputs.parameters.submitting-a-cloud-ml-training-job-as-a-pipeline-step-executor-job-dir}}'
+          - name: submitting-a-cloud-ml-training-job-as-a-pipeline-step-executor-job-id
+            value: '{{tasks.submitting-a-cloud-ml-training-job-as-a-pipeline-step-condition.outputs.parameters.submitting-a-cloud-ml-training-job-as-a-pipeline-step-executor-job-id}}'
+        dependencies:
+        - submitting-a-cloud-ml-training-job-as-a-pipeline-step-condition
+        - submitting-a-cloud-ml-training-job-as-a-pipeline-step-driver
+        name: submitting-a-cloud-ml-training-job-as-a-pipeline-step-publisher
+        template: submitting-a-cloud-ml-training-job-as-a-pipeline-step-publisher
+    inputs:
+      parameters:
+      - name: depth
+      - name: eval-batch-size
+      - name: num-eval-images
+      - name: num-label-classes
+      - name: num-train-images
+      - name: output
+      - name: project-id
+      - name: steps-per-eval
+      - name: tf-version
+      - name: train-batch-size
+      - name: train-steps
+    name: submitting-a-cloud-ml-training-job-as-a-pipeline-step-group
+    outputs:
+      parameters:
+      - name: submitting-a-cloud-ml-training-job-as-a-pipeline-step-publisher-job-dir
+        valueFrom:
+          parameter: '{{tasks.submitting-a-cloud-ml-training-job-as-a-pipeline-step-publisher.outputs.parameters.submitting-a-cloud-ml-training-job-as-a-pipeline-step-publisher-job-dir}}'
+  - container:
+      args:
+      - publisher.py
+      - '{"base_dir": "gs://hongyes-ml-tests/metadata"}'
+      - '{{inputs.parameters.submitting-a-cloud-ml-training-job-as-a-pipeline-step-driver-cached}}'
+      - '{{inputs.parameters.submitting-a-cloud-ml-training-job-as-a-pipeline-step-driver-execution}}'
+      - '{"job-id": "{{inputs.parameters.submitting-a-cloud-ml-training-job-as-a-pipeline-step-executor-job-id}}",
+        "job-dir": "{{inputs.parameters.submitting-a-cloud-ml-training-job-as-a-pipeline-step-executor-job-dir}}"}'
+      env:
+      - name: GOOGLE_APPLICATION_CREDENTIALS
+        value: /secret/gcp-credentials/key.json
+      - name: CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE
+        value: /secret/gcp-credentials/key.json
+      image: gcr.io/hongyes-ml/metadata-tool:latest
+      volumeMounts:
+      - mountPath: /secret/gcp-credentials
+        name: gcp-credentials
+    inputs:
+      parameters:
+      - name: submitting-a-cloud-ml-training-job-as-a-pipeline-step-driver-cached
+      - name: submitting-a-cloud-ml-training-job-as-a-pipeline-step-driver-execution
+      - name: submitting-a-cloud-ml-training-job-as-a-pipeline-step-executor-job-dir
+      - name: submitting-a-cloud-ml-training-job-as-a-pipeline-step-executor-job-id
+    name: submitting-a-cloud-ml-training-job-as-a-pipeline-step-publisher
+    outputs:
+      artifacts:
+      - name: mlpipeline-ui-metadata
+        optional: true
+        path: /mlpipeline-ui-metadata.json
+      - name: mlpipeline-metrics
+        optional: true
+        path: /mlpipeline-metrics.json
+      parameters:
+      - name: submitting-a-cloud-ml-training-job-as-a-pipeline-step-publisher-job_dir
+        valueFrom:
+          path: /tmp/job-dir
+      - name: submitting-a-cloud-ml-training-job-as-a-pipeline-step-publisher-job_id
+        valueFrom:
+          path: /tmp/job-id
+  volumes:
+  - name: gcp-credentials
+    secret:
+      secretName: gcp-user

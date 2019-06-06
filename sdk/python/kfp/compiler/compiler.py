@@ -22,7 +22,7 @@ import yaml
 
 from .. import dsl
 from ._k8s_helper import K8sHelper
-from ._op_to_template import _op_to_template
+from ._op_to_templates import _op_to_templates
 
 from ..dsl._metadata import TypeMeta, _extract_pipeline_metadata
 from ..dsl._ops_group import OpsGroup
@@ -134,6 +134,8 @@ class Compiler(object):
     [root, G1, G4, op2], then it returns a tuple ([G2, G3, op1], [G4, op2]).
     """
     #TODO: extract a function for the following two code module
+    # print(op1.name)
+    # print(op_groups.keys())
     if op1.name in op_groups:
       op1_groups = op_groups[op1.name]
     elif op1.name in opsgroup_groups:
@@ -197,6 +199,8 @@ class Compiler(object):
     for op in pipeline.ops.values():
       # op's inputs and all params used in conditions for that op are both considered.
       for param in op.inputs + list(condition_params[op.name]):
+        # print(op.inputs)
+        # print(list(condition_params[op.name]))
         # if the value is already provided (immediate value), then no need to expose
         # it as input for its parent groups.
         if param.value:
@@ -349,8 +353,8 @@ class Compiler(object):
     else:
       return str(value_or_reference)
 
-  def _op_to_template(self, op):
-    return _op_to_template(op)
+  def _op_to_templates(self, op):
+    return _op_to_templates(op)
 
   def _group_to_template(self, group, inputs, outputs, dependencies):
     """Generate template given an OpsGroup.
@@ -459,6 +463,9 @@ class Compiler(object):
 
     new_root_group = pipeline.groups[0]
 
+    # from ._metadata_processor import _insert_metadata_groups
+    # _insert_metadata_groups(new_root_group, pipeline)
+
     # Generate core data structures to prepare for argo yaml generation
     #   op_groups: op name -> list of ancestor groups including the current op
     #   opsgroups: a dictionary of ospgroup.name -> opsgroup
@@ -481,7 +488,7 @@ class Compiler(object):
       templates.append(self._group_to_template(opsgroups[opsgroup], inputs, outputs, dependencies))
 
     for op in pipeline.ops.values():
-      templates.append(_op_to_template(op))
+      templates.extend(_op_to_templates(op))
     return templates
 
   def _create_volumes(self, pipeline):
